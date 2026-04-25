@@ -1,0 +1,65 @@
+---
+- name: Uninstall and Remove Quobyte Client
+  hosts: quobyte_clients
+  become: true
+  vars_files:
+    - ansible-vars.yaml
+  vars:
+    quobyte_mount_point: "/quobyte"
+
+  tasks:
+    - name: Forcefully kill lingering mount.quobyte processes
+      ansible.builtin.shell: "pkill -9 mount.quobyte"
+      failed_when: false
+      changed_when: false
+
+    - name: Stop and disable Quobyte client service
+      ansible.builtin.service:
+        name: quobyte-client
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Unmount Quobyte (Force if necessary)
+      ansible.posix.mount:
+        path: "{{ quobyte_mount_point }}"
+        state: unmounted
+
+    - name: Remove Quobyte Ubuntu packages
+      ansible.builtin.apt:
+        name: quobyte-client
+        state: absent
+        purge: true # Removes configuration files managed by apt
+
+    - name: Remove Quobyte mount point directory
+      ansible.builtin.file:
+        path: "{{ quobyte_mount_point }}"
+        state: absent
+
+    - name: Remove Quobyte configuration directory
+      ansible.builtin.file:
+        path: /etc/quobyte
+        state: absent
+
+    - name: Check if Client Status Page iptables rule exists
+      ansible.builtin.shell: "iptables -C INPUT -s {{ virtual_network_cidr }} -p tcp --dport 55000 -j ACCEPT -m comment --comment 'Quobyte client status page'"
+      register: status_page_check
+      failed_when: false
+      changed_when: false
+
+    - name: Remove iptables rule for status page
+      ansible.builtin.iptables:
+        chain: INPUT
+        source: "{{ virtual_network_cidr }}"
+        protocol: tcp
+        destination_port: "55000"
+        jump: ACCEPT
+        action: remove
+        comment: "Quobyte client status page"
+      when: status_page_check.rc == 0
+      notify: Save iptables rules
+
+  handlers:
+    - name: Save iptables rules
+      ansible.builtin.shell: iptables-save > /etc/iptables/rules.v4
+      when: ansible_os_family == "Debian"

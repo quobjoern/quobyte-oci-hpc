@@ -1,0 +1,52 @@
+- name: Check if Client Status Page rule exists
+  ansible.builtin.shell: "iptables -C INPUT -s {{ virtual_network_cidr }} -p tcp --dport 55000 -j ACCEPT -m comment --comment 'Quobyte client status page'"
+  register: status_page_check
+  failed_when: false
+  changed_when: false
+
+- name: Allow incoming traffic from local network to client status page
+  ansible.builtin.iptables:
+    chain: INPUT
+    source: "{{ virtual_network_cidr }}"
+    protocol: tcp
+    destination_port: 55000
+    jump: ACCEPT
+    action: insert
+    rule_num: 1
+    comment: "Quobyte client status page"
+  when: status_page_check.rc != 0
+  notify: Save iptables rules
+
+- name: Install Ubuntu packages
+  apt:
+    name: "{{ packages }}"
+    state: present
+    allow_unauthenticated: "{{ check_packages_signature | default('no', false) }}"
+  vars:
+    packages:
+    - quobyte-client
+
+- name: Update client config file with registry handle
+  ansible.builtin.lineinfile:
+    path: /etc/quobyte/client-service.cfg
+    state: present
+    regexp: '^registry='
+    line: 'registry={{ quobyte_registry_handle }}'
+
+- name: Update client config file with mount point
+  ansible.builtin.lineinfile:
+    path: /etc/quobyte/client-service.cfg
+    state: present
+    regexp: '^mount_point='
+    line: 'mount_point=/quobyte'
+
+- name: Create Quobyte mount point
+  ansible.builtin.file:
+    path: /quobyte
+    state: directory
+
+- name: Mount Quobyte client
+  service:
+    enabled: yes
+    state: started
+    name: quobyte-client

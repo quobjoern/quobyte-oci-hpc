@@ -1,0 +1,26 @@
+- name: Disable webconsole wizard
+  ansible.builtin.lineinfile:
+    path: /etc/quobyte/webconsole.cfg
+    state: present
+    line: 'constants.webconsole.setup_wizard.enable=false'
+
+- name: Create registry device directory
+  file:
+    path: /var/lib/quobyte/devices/registry
+    state: directory
+    mode: '0755'
+
+- name: Create registry devices
+  command:
+    cmd: /usr/bin/qmkdev -t REGISTRY -y -d /var/lib/quobyte/devices/registry
+    creates: /var/lib/quobyte/devices/registry/QUOBYTE_DEV_SETUP
+
+- name: Start Quobyte services
+  service:
+    enabled: yes
+    state: started
+    name: "{{ item }}"
+  with_items:
+    - quobyte-registry
+    - quobyte-api
+    - quobyte-webconsole

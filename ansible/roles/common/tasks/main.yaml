@@ -1,0 +1,86 @@
+- name: Disable updater
+  ansible.builtin.systemd_service:
+    name: snap.oracle-cloud-agent.oracle-cloud-agent-updater
+    state: stopped
+  ignore_errors: yes
+
+- name: Ensure no other apt processes are blocking
+  ansible.builtin.shell: |
+    systemctl stop apt-daily.service apt-daily-upgrade.service || true
+    systemctl stop apt-daily.timer apt-daily-upgrade.timer || true
+  changed_when: false
+
+- name: Wait for cloud-init completion file
+  wait_for:
+    path: /var/lib/cloud/instance/boot-finished
+    state: present
+    timeout: 600
+
+- name: Terminate all running apt processes
+  ansible.builtin.shell: "killall apt && dpkg --configure -a"
+  ignore_errors: yes
+
+- set_fact:
+    package_url: https://packages.quobyte.com/repo/21/2dc3276fa0Cf532119d046eb9c35ed4c/
+
+- name: Add Quobyte repository signing key
+  apt_key:
+    url: "{{ package_url }}/apt/pubkey.gpg"
+    state: present
+  retries: 10
+  delay: 5
+
+- name: Add Quobyte apt repository to sources list
+  apt_repository:
+    repo: "deb {{ package_url }}/apt {{ ansible_distribution_release }} main"
+    state: present
+  register: apt_repo_result
+  until: apt_repo_result is not failed
+  retries: 5
+  delay: 20
+
+
+- name: Ensure the configuration resolved.conf.d directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/resolved.conf.d
+    state: directory
+    mode: '0755'
+
+- name: Disable DNSStubListener in noresolved.conf
+  ansible.builtin.blockinfile:
+    path: /etc/systemd/resolved.conf.d/noresolved.conf
+    create: yes
+    block: |
+        [Resolve]
+        DNSStubListener=no
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Restart systemd-resolved
+  ansible.builtin.systemd_service:
+    name: systemd-resolved
+    state: restarted
+    daemon_reload: true
+  ignore_errors: yes
+
+
+- name: Check if port 53 (DNS) is open for OCI DNS
+  ansible.builtin.shell: "iptables -C INPUT -s 169.254.169.254 -p udp --sport 53 -j ACCEPT -m comment --comment 'Accept OCI DNS responses'"
+  register: dns_rule_check
+  failed_when: false
+  changed_when: false
+
+- name: Insert OCI DNS response iptables rule at the top
+  ansible.builtin.iptables:
+    chain: INPUT
+    source: 169.254.169.254
+    protocol: udp
+    source_port: "53"
+    jump: ACCEPT
+    action: insert
+    rule_num: 1
+    comment: "Accept OCI DNS responses"
+  when: dns_rule_check.rc != 0
+  notify: Save iptables rules
+

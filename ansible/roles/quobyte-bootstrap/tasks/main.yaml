@@ -1,0 +1,167 @@
+- name: Check if the cluster has already been bootstrapped
+  ansible.builtin.stat:
+    path: /var/lib/quobyte/.bootstrap_complete
+  register: bootstrap_state
+
+- name: Execute Quobyte Bootstrap
+  when: not bootstrap_state.stat.exists
+  block:
+    - name: Create bootstrap registry device directory
+      file:
+        path: /var/lib/quobyte/devices/registry
+        state: directory
+        mode: '0755'
+
+    - name: Create boostrap registry device
+      command:
+        cmd: /usr/bin/qbootstrap -y -d /var/lib/quobyte/devices/registry
+        creates: /var/lib/quobyte/devices/registry/QUOBYTE_DEV_SETUP
+
+    - name: Start and enable registry
+      service:
+        enabled: yes
+        state: started
+        name: quobyte-registry
+
+    - name: Start and enable api
+      service:
+        enabled: yes
+        state: started
+        name: quobyte-api
+
+    - name: Wait for API RPC port to become available
+      wait_for:
+        port: 7865
+        delay: 2
+
+    - name: Export current system config
+      ansible.builtin.shell: qmgmt systemconfig export > /tmp/qb-syscfg.current
+      changed_when: false
+
+    - name: Load systemconfig file yaml contents as fact
+      ansible.builtin.slurp:
+        src: /tmp/qb-syscfg.current
+      register: sysconfig_yaml
+
+    - name: Parse yaml file contents into a variable
+      ansible.builtin.set_fact:
+        yaml_data: "{{ sysconfig_yaml['content'] | b64decode | from_yaml }}"
+
+    - name: Change trusted networks and s3 proxy settings
+      ansible.builtin.set_fact:
+        overwrite_data:
+            network:
+                trusted_service_networks:
+                    - '{{ storage_servers_subnet }}'
+            s3_proxy:
+                authentication_type: REGISTRY_USER_DATABASE
+                http_port: 80
+                hostname:
+                    - '{{ quobyte_s3_domain }}'
+                create_volume_per_bucket: true
+                enable_access_log: false
+
+    - name: Update systemconfig yaml
+      ansible.builtin.set_fact:
+        updated_yaml_data: "{{ yaml_data | combine(overwrite_data, recursive=true) }}"
+
+    - name: Write the modified systemconfig
+      ansible.builtin.copy:
+        content: "{{ updated_yaml_data | to_nice_yaml }}"
+        dest: /tmp/qb-syscfg.current
+        mode: '0644'
+
+    - name: Import updated system config
+      ansible.builtin.shell: qmgmt systemconfig import < /tmp/qb-syscfg.current
+
+    - name: Create admin user
+      ansible.builtin.shell: qmgmt user config add admin {{ admin_email }} SUPER_USER {{ admin_password }}
+
+    - name: Login admin user
+      ansible.builtin.shell: qmgmt user login admin {{ admin_password }}
+      changed_when: false
+
+    - name: Create policy for scratch volumes
+      ansible.builtin.shell: |
+        cat << EOF | qmgmt policy-rule import --format=proto
+        policy_rule {
+            name: "scratch-volumes"
+            description: "Places all metadata and data for scratch volumes on ephemeral NVMes"
+            enabled: true
+            ordering_number: 5
+            scope {
+                volume {
+                    name_regex: "scratch.*"
+                }
+            }
+            policies {
+                metadata_tag_based_placement {
+                    required_tag: "scratch-device"
+                    soften_tag_requirements: false
+                }
+                file_tag_based_placement {
+                    required_tag: "scratch-device"
+                    soften_tag_requirements: false
+                    automatic_constraints: NONE
+                }
+            }
+        }
+        EOF
+
+    - name: Create global policy to always use persistent disks
+      ansible.builtin.shell: |
+        cat << EOF | qmgmt policy-rule import --format=proto
+        policy_rule {
+            name: "all-data-on-persistent-disk"
+            description: "Store all data on persistent disks by default"
+            enabled: true
+            ordering_number: 6
+            scope {
+                global: true
+            }
+            policies {
+                file_tag_based_placement {
+                    required_tag: "cloud-persistent"
+                    soften_tag_requirements: false
+                    automatic_constraints: NONE
+                }
+                metadata_tag_based_placement {
+                    required_tag: "cloud-persistent"
+                    soften_tag_requirements: false
+                }
+            }
+        }
+        EOF
+
+    - name: Configure External Object Storage
+      ansible.builtin.shell: |
+        cat << EOF | qmgmt external-locations import
+        comment: 'OCI object storage for external tiering'
+        location_type: EXTERNAL_STORAGE_S3
+        name: quobyte-oci-object
+        s3:
+            access_key_id: '{{ s3_access_key }}'
+            access_key_secret: '{{ s3_secret_key }}'
+            bucket_url: 'https://{{ s3_endpoint }}/{{ s3_bucket_name }}'
+        EOF
+      when:
+        - s3_bucket_name is defined
+        - s3_bucket_name | length > 0
+
+    - name: Set license key
+      ansible.builtin.shell: qmgmt license import {{ license_key }}
+      when: license_key is defined
+
+    - name: Create bootstrap marker file
+      ansible.builtin.file:
+        path: /var/lib/quobyte/.bootstrap_complete
+        state: touch
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Start Quobyte webconsole
+      service:
+        enabled: yes
+        state: started
+        name: quobyte-webconsole

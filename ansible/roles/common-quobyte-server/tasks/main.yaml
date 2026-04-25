@@ -1,0 +1,71 @@
+- name: Check if VCN traffic rule exists
+  ansible.builtin.shell: "iptables -C INPUT -s {{ virtual_network_cidr }} -j ACCEPT"
+  register: vcn_check
+  failed_when: false
+  changed_when: false
+
+- name: Allow all traffic from the entire virtual cloud network
+  ansible.builtin.iptables:
+    chain: INPUT
+    source: "{{ virtual_network_cidr }}"
+    jump: ACCEPT
+    action: insert
+    rule_num: 1
+  when: vcn_check.rc != 0
+  notify: Save iptables rules
+
+- name: Check if Webconsole rule exists
+  ansible.builtin.shell: "iptables -C INPUT -p tcp --dport 8080 -j ACCEPT"
+  register: console_check
+  failed_when: false
+  changed_when: false
+
+- name: TEMPORARY - Open webconsole to world
+  ansible.builtin.iptables:
+    chain: INPUT
+    protocol: tcp
+    destination_port: 8080
+    jump: ACCEPT
+    action: insert
+    rule_num: 1
+  when: console_check.rc != 0
+  notify: Save iptables rules
+
+- name: Install Debian packages
+  apt:
+    name: "{{ packages }}"
+    state: present
+    allow_unauthenticated: "{{ check_packages_signature | default('no', false) }}"
+    lock_timeout: 120
+  vars:
+    packages:
+    - openjdk-25-jre-headless
+    - quobyte-server
+    - xfsprogs
+    - chrony
+    - tuned
+
+- name: Start chronyd
+  ansible.builtin.systemd_service:
+    name: chronyd
+    enabled: yes
+    state: started
+
+- name: Write /etc/quobyte/host.cfg
+  ansible.builtin.lineinfile:
+    path: /etc/quobyte/host.cfg
+    state: present
+    regexp: '^registry='
+    line: 'registry={{ quobyte_registry_handle }}'
+
+- name: Activate quobyte server tuned profile
+  command: tuned-adm profile quobyte-server-performance
+  ignore_errors: true
+
+- name: Wait for the registry DNS handle to resolve
+  ansible.builtin.shell: "dig +short A {{ quobyte_registry_handle }}"
+  register: dns_lookup_result
+  until: dns_lookup_result.stdout | length > 0
+  retries: 30
+  delay: 30
+  changed_when: false

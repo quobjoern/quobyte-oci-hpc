@@ -1,0 +1,182 @@
+title: "Quobyte Storage for OCI-HPC"
+description: "Deploys a Quobyte storage cluster and integrates it with an existing OCI-HPC VCN."
+logoUrl: "https://www.quobyte.com/wp-content/uploads/2025/10/favicon.jpeg"
+schemaVersion: 1.0.1
+version: "1.4.0"
+
+groupings:
+  - title: "Infrastructure Selection"
+    visible: true
+    variables:
+      - tenancy_ocid
+      - compartment_ocid
+      - region
+      - ad
+      - existing_vcn_id
+  - title: "Ansible Execution Host"
+    visible: true
+    variables:
+      - controller_ocid
+      - ssh_private_key
+  - title: "Network and DNS Configuration"
+    visible: true
+    variables:
+      - storage_subnet_cidr
+      - storage_subnet_dns_name
+      - dns_zone_name
+  - title: "Quobyte Node Configuration"
+    visible: true
+    variables:
+      - quobyte_node_type
+      - quobyte_instance_count
+      - quobyte_image_ocid
+      - volume_attachment_type
+  - title: "Quobyte Configuration"
+    visible: true
+    variables:
+      - quobyte_admin_email
+      - quobyte_admin_password
+      - quobyte_license_key
+  - title: "Object Storage Tiering"
+    visible: true
+    variables:
+      - enable_tiering
+      - bucket_name
+      - s3_access_key
+      - s3_secret_key
+
+variables:
+  tenancy_ocid:
+    type: oci:identity:tenancy:id
+    title: "Tenancy"
+    required: true
+
+  compartment_ocid:
+    type: oci:identity:compartment:id
+    title: "Compartment"
+    required: true
+
+  region:
+    type: oci:identity:region:name
+    title: "Region"
+    required: true
+
+  ad:
+    type: oci:identity:availabilitydomain:name
+    title: "Availability Domain"
+    required: true
+    dependsOn:
+      compartmentId: compartment_ocid
+
+  existing_vcn_id:
+    type: oci:core:vcn:id
+    title: "Existing HPC VCN"
+    required: true
+    dependsOn:
+      compartmentId: compartment_ocid
+
+  controller_ocid:
+    type: oci:core:instance:id
+    title: "Ansible Controller Instance"
+    required: true
+    dependsOn:
+      compartmentId: compartment_ocid
+
+  ssh_private_key:
+    type: text
+    title: "Controller SSH Private Key"
+    description: "The private key used to log into the controller node. Can be retrieved from the OCI-HPC stack resources."
+    multiline: true
+    required: true
+
+  quobyte_node_type:
+    type: enum
+    title: "Node Performance Profile"
+    # Corrected: Plain list of strings for type 'enum'
+    enum:
+      - "arm"
+      - "x86_dense"
+      - "x86_bm"
+      - "gpu"
+    default: "x86_dense"
+    required: true
+
+  quobyte_instance_count:
+    type: integer
+    title: "Number of Nodes"
+    default: 3
+
+  quobyte_image_ocid:
+    type: oci:core:image:id
+    title: "Quobyte OS Image"
+    required: true
+    dependsOn:
+      compartmentId: compartment_ocid
+
+  volume_attachment_type:
+    type: enum
+    title: "Volume Attachment Mode"
+    # Corrected: Plain list of strings for type 'enum'
+    enum:
+      - "paravirtualized"
+      - "iscsi"
+    default: "iscsi"
+    required: true
+
+  quobyte_admin_email:
+    type: string
+    title: "Admin Email"
+    required: true
+
+  quobyte_admin_password:
+    type: string
+    title: "Admin Password"
+    sensitive: true
+    required: true
+
+  quobyte_license_key:
+    type: text
+    title: "Quobyte License Key"
+    multiline: true
+    default: ""
+
+  storage_subnet_cidr:
+    type: string
+    title: "Storage Subnet CIDR"
+    description: "Provide a manual CIDR block for the new storage subnet (e.g., 172.16.8.0/24). Must be a valid subnet of your existing HPC VCN."
+    default: "172.16.8.0/24"
+    required: true
+
+  enable_tiering:
+    type: boolean
+    title: "Configure Object Storage Tiering"
+    description: "Check to enable Quobyte S3 tiering to OCI Object Storage."
+    default: false
+
+  bucket_name:
+    type: string
+    title: "S3 Bucket Name (existing bucket)"
+    visible: enable_tiering
+
+  s3_access_key:
+    type: string
+    title: "S3 Access Key"
+    visible: enable_tiering
+
+  s3_secret_key:
+    type: string
+    title: "S3 Secret Key"
+    sensitive: true
+    visible: enable_tiering
+
+  storage_subnet_dns_name:
+    type: string
+    title: "Storage Subnet DNS Label"
+    default: "quobyte"
+    required: true
+
+  dns_zone_name:
+    type: string
+    title: "Internal DNS Zone"
+    default: "quobyte-oci.internal"
+    required: true
