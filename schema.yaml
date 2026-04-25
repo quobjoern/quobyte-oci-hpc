@@ -28,6 +28,8 @@ groupings:
     visible: true
     variables:
       - quobyte_node_type
+      - arm_ocpus
+      - dense_nvmes
       - quobyte_instance_count
       - quobyte_image_ocid
       - volume_attachment_type
@@ -101,9 +103,34 @@ variables:
     default: "x86_dense"
     required: true
 
+  arm_ocpus:
+    type: enum
+    title: "ARM OCPUs"
+    description: "Select number of cores for the A1 Flex shape (6GB RAM per OCPU)."
+    enum: ["4", "8", "16", "32", "40"]
+    default: "4"
+    required: true
+    visible:
+      eq:
+        - ${quobyte_node_type}
+        - "arm"
+
+  dense_nvmes:
+    type: enum
+    title: "DenseIO NVMe Drives"
+    description: "Number of NVMe drives. Cores and RAM will scale automatically."
+    enum: ["1", "2", "4", "6"]
+    default: "2"
+    required: true
+    visible:
+      eq:
+        - ${quobyte_node_type}
+        - "x86_dense"
+
   quobyte_instance_count:
     type: integer
     title: "Number of Nodes"
+    required: true
     default: 3
 
   quobyte_image_ocid:

@@ -85,6 +85,16 @@ variable "quobyte_node_type" {
   }
 }
 
+variable "arm_ocpus" {
+  type    = string
+  default = "4"
+}
+
+variable "dense_nvmes" {
+  type    = string
+  default = "2"
+}
+
 variable "volume_attachment_type" {
   type        = string
   default     = "iscsi"

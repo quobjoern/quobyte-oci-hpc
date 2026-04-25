@@ -107,10 +107,19 @@ resource "tls_private_key" "internal_key" {
 locals {
   quobyte_node_configs = {
     "arm" = {
-      shape = "VM.Standard.A1.Flex", ocpus = 4, memory = 24, nvmes = 0, is_flex = true
+      shape   = "VM.Standard.A1.Flex"
+      ocpus   = var.arm_ocpus
+      memory  = var.arm_ocpus * 6
+      nvmes   = 0
+      is_flex = true
     },
     "x86_dense" = {
-      shape = "VM.DenseIO.E5.Flex", ocpus = 16, memory = 192, nvmes = 2, is_flex = true
+      shape   = "VM.DenseIO.E5.Flex"
+      # Scaling DenseIO.E5.Flex: 8 OCPUs and 96GB RAM per NVMe drive is required
+      ocpus   = var.dense_nvmes * 8
+      memory  = var.dense_nvmes * 96
+      nvmes   = var.dense_nvmes
+      is_flex = true
     },
     "x86_bm" = {
       shape = "BM.DenseIO.E5.128", is_flex = false

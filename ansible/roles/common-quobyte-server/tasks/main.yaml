@@ -44,6 +44,7 @@
     - xfsprogs
     - chrony
     - tuned
+    - dnsutils
 
 - name: Start chronyd
   ansible.builtin.systemd_service:
