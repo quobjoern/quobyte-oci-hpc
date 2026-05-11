@@ -29,10 +29,11 @@
         state: started
         name: quobyte-api
 
-    - name: Wait for API RPC port to become available
+    - name: Wait for API HTTP port to become available
       wait_for:
-        port: 7865
-        delay: 2
+        port: 7875
+        delay: 5
+        timeout: 300
 
     - name: Export current system config
       ansible.builtin.shell: qmgmt systemconfig export > /tmp/qb-syscfg.current

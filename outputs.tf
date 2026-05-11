@@ -10,6 +10,11 @@ output "controller_public_ip" {
   value = data.oci_core_vnic.controller_vnic.public_ip_address
 }
 
+output "temporary_directory_path" {
+  value       = local.temp_dir_path
+  description = "The local path of the temporary directory for ansible playbook on the controller host"
+}
+
 locals {
   inventory_content = <<-EOT
     [all:vars]
@@ -41,13 +46,13 @@ locals {
   ${try(var.quobyte_license_key != "" ? "license_key: \"${var.quobyte_license_key}\"\n" : "", "")}
   admin_password: "${var.quobyte_admin_password}"
   admin_email: "${var.quobyte_admin_email}"
+%{ if var.enable_tiering ~}
   # Optional S3 Tiering
-  %{ if var.enable_tiering ~}
   s3_bucket_name: "${var.bucket_name}"
   s3_endpoint: "${data.oci_objectstorage_namespace.ns.namespace}.compat.objectstorage.${var.region}.oraclecloud.com"
   s3_access_key: "${var.s3_access_key}"
   s3_secret_key: "${var.s3_secret_key}"
-  %{ endif ~}
+%{ endif ~}
   EOT
 }
 
@@ -59,6 +64,11 @@ resource "local_file" "ansible_vars" {
   depends_on = [
     oci_dns_rrset.quobyte-registry-handle
   ]
+}
+
+output "ansible_vars" {
+  value = local.vars_content
+  sensitive = true
 }
 
 output "z_next_step_run_ansible" {

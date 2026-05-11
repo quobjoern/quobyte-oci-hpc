@@ -379,10 +379,15 @@ data "oci_core_vnic" "controller_vnic" {
   vnic_id = data.oci_core_vnic_attachments.controller_vnics.vnic_attachments[0].vnic_id
 }
 
+locals {
+  timestamp_suffix = formatdate("YYYYMMDD-HHmmss", timestamp())
+  temp_dir_path    = "/tmp/quobyte-ansible-${local.timestamp_suffix}"
+}
+
 resource "null_resource" "run_ansible_on_controller" {
   # This ensures the files are copied/run only after the inventory is generated
   # and the Quobyte nodes are fully provisioned.
-depends_on = [
+  depends_on = [
     oci_core_instance.quobyte_node,
     oci_core_volume_attachment.m_attachment,
     local_file.ansible_inventory,
@@ -394,13 +399,13 @@ depends_on = [
     type        = "ssh"
     user        = "ubuntu"
     host        = data.oci_core_vnic.controller_vnic.public_ip_address
-    private_key = var.ssh_private_key
+    private_key = replace(var.ssh_private_key, "\\n", "\n")
   }
 
   # 1. Copy the entire ansible directory to the controller
   provisioner "file" {
     source      = "ansible"
-    destination = "/home/ubuntu/ansible"
+    destination = "${local.temp_dir_path}"
   }
 
   provisioner "file" {
@@ -412,8 +417,13 @@ depends_on = [
   provisioner "remote-exec" {
     inline = [
       "chmod 0600 /home/ubuntu/.ssh/id_rsa_qb",
-      "cd /home/ubuntu/ansible",
+      "cd ${local.temp_dir_path}",
       "bash run_ansible.sh"
     ]
   }
+
+  # 3. Delete the temporary directory
+  #provisioner "local-exec" {
+    # command = "rm -rf ${local.temp_dir_path}"
+  #}
 }

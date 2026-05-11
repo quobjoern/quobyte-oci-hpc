@@ -63,6 +63,14 @@
   command: tuned-adm profile quobyte-server-performance
   ignore_errors: true
 
+- name: Check DNS resolver
+  ansible.builtin.shell: "dig +short A packages.quobyte.com"
+  register: dns_lookup_result
+  until: dns_lookup_result.stdout | length > 0
+  retries: 30
+  delay: 30
+  changed_when: false
+
 - name: Wait for the registry DNS handle to resolve
   ansible.builtin.shell: "dig +short A {{ quobyte_registry_handle }}"
   register: dns_lookup_result
