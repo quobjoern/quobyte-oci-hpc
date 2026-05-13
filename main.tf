@@ -24,6 +24,21 @@ data "oci_core_vnic" "hpc_vnics" {
   vnic_id = data.oci_core_vnic_attachments.hpc_vnic_attachments[count.index].vnic_attachments[0].vnic_id
 }
 
+data "oci_core_subnet" "hpc_vnic_subnets" {
+  count     = length(data.oci_core_instances.hpc_nodes.instances)
+  subnet_id = data.oci_core_vnic.hpc_vnics[count.index].subnet_id
+}
+
+locals {
+  hpc_clients_in_selected_vcn = [
+    for index, inst in data.oci_core_instances.hpc_nodes.instances : {
+      display_name = inst.display_name
+      private_ip   = data.oci_core_vnic.hpc_vnics[index].private_ip_address
+    }
+    if data.oci_core_subnet.hpc_vnic_subnets[index].vcn_id == data.oci_core_vcn.hpc_network.id
+  ]
+}
+
 # 2. MANAGED STORAGE NETWORK (Created within the existing HPC VCN)
 
 data "oci_core_nat_gateways" "hpc_nat_gateways" {

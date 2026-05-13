@@ -3,7 +3,7 @@ output "quobyte_node_private_ips" {
 }
 
 output "hpc_client_private_ips" {
-  value = data.oci_core_vnic.hpc_vnics[*].private_ip_address
+  value = [for inst in local.hpc_clients_in_selected_vcn : inst.private_ip]
 }
 
 output "controller_public_ip" {
@@ -24,7 +24,10 @@ locals {
     ${join("\n", [for instance in oci_core_instance.quobyte_node : "${instance.display_name} ansible_host=${instance.private_ip} ansible_user=ubuntu ansible_ssh_private_key_file=/home/ubuntu/.ssh/id_rsa_qb"])}
 
     [quobyte_clients]
-    ${join("\n", [for index, inst in data.oci_core_instances.hpc_nodes.instances : "${inst.display_name} ansible_host=${data.oci_core_vnic.hpc_vnics[index].private_ip_address} ansible_user=ubuntu"])}
+    ${join("\n", [
+      for inst in local.hpc_clients_in_selected_vcn :
+      "${inst.display_name} ansible_host=${inst.private_ip} ansible_user=ubuntu"
+    ])}
     EOT
 }
 
@@ -64,14 +67,4 @@ resource "local_file" "ansible_vars" {
   depends_on = [
     oci_dns_rrset.quobyte-registry-handle
   ]
-}
-
-output "ansible_vars" {
-  value = local.vars_content
-  sensitive = true
-}
-
-output "z_next_step_run_ansible" {
-  description = "Please add your compute, login and controller nodes to the ansible/inventory file. Then copy the anisble directory to your controller node, and run the following command on the controller node:"
-  value = "(cd ansible && ansible-playbook -i inventory playbook.yaml)"
 }
